@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>台股除權息計算機 — 參考價與畸零股規避</title>
+<meta name="description" content="計算台股除權息參考價、填權息所需漲幅，並算出配股不產生畸零股的最小買進股數，避免不足 1 股被按面額折現。">
+<meta property="og:title" content="台股除權息計算機">
+<meta property="og:description" content="除權息參考價試算，並算出避免畸零股折現的最小買進股數。">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231a6fd4'/%3E%3Cpath d='M7 22 L13 14 L18 18 L25 9' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#f4f5f7; --card:#ffffff; --line:#e3e5e9; --text:#1c1e21;
+    --muted:#6b7280; --accent:#1a6fd4; --warn:#c0392b; --good:#1e8e5a;
+    --chip:#eef2f7;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#16181d; --card:#1e2127; --line:#2e323a; --text:#e6e8eb;
+      --muted:#9aa2ae; --accent:#5aa2f5; --warn:#ff7a6b; --good:#4ad295;
+      --chip:#262a31;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:24px 16px 60px; background:var(--bg); color:var(--text);
+    font-family:"Segoe UI","Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif;
+    font-size:15px; line-height:1.6;
+  }
+  .wrap{max-width:880px; margin:0 auto}
+  h1{font-size:22px; margin:0 0 4px}
+  .sub{color:var(--muted); font-size:13px; margin:0 0 20px}
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:18px 20px; margin-bottom:16px;
+  }
+  .card h2{font-size:14px; margin:0 0 14px; color:var(--muted); font-weight:600; letter-spacing:.5px}
+  .grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px}
+  label{display:block; font-size:13px; color:var(--muted); margin-bottom:5px}
+  input,select{
+    width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px;
+    background:var(--bg); color:var(--text); font-size:16px; font-family:inherit;
+  }
+  input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px; border-color:transparent}
+  .row{display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:7px 0; border-bottom:1px dashed var(--line)}
+  .row:last-child{border-bottom:0}
+  .row .k{color:var(--muted); font-size:13px}
+  .row .v{font-variant-numeric:tabular-nums; font-weight:600; text-align:right}
+  .big{font-size:26px; font-variant-numeric:tabular-nums; font-weight:700; letter-spacing:-.5px}
+  .accent{color:var(--accent)} .warn{color:var(--warn)} .good{color:var(--good)}
+  .note{font-size:12px; color:var(--muted); margin-top:12px; line-height:1.7}
+  .tw{overflow-x:auto; -webkit-overflow-scrolling:touch}
+  table{width:100%; min-width:520px; border-collapse:collapse; margin-top:6px}
+  th,td{text-align:right; padding:8px 6px; font-variant-numeric:tabular-nums; font-size:14px; border-bottom:1px solid var(--line); white-space:nowrap}
+  th{color:var(--muted); font-size:12px; font-weight:600}
+  th:first-child,td:first-child{text-align:left}
+  tr.hit td{color:var(--good); font-weight:600}
+  code{background:var(--chip); padding:1px 5px; border-radius:4px; font-size:13px}
+  footer{text-align:center; font-size:12px; color:var(--muted); margin-top:28px; line-height:1.8}
+  footer a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>台股除權息計算機</h1>
+  <p class="sub">參考價試算 · 配股畸零股折現 · 免畸零股的最小買進股數</p>
+
+  <div class="card">
+    <h2>輸入</h2>
+    <div class="grid">
+      <div>
+        <label for="close">除權息前一日收盤價（元）</label>
+        <input id="close" type="number" step="0.01" value="2000" inputmode="decimal">
+      </div>
+      <div>
+        <label for="cash">現金股利（元／股）</label>
+        <input id="cash" type="number" step="0.001" value="0" inputmode="decimal">
+      </div>
+      <div>
+        <label for="stock">股票股利（元／股）</label>
+        <input id="stock" type="number" step="0.001" value="19.842" inputmode="decimal">
+      </div>
+      <div>
+        <label for="shares">打算持有股數</label>
+        <input id="shares" type="number" step="1" value="1000" inputmode="numeric">
+      </div>
+      <div>
+        <label for="basis">畸零股折現計價基準</label>
+        <select id="basis">
+          <option value="par">面額 10 元（多數公司公告）</option>
+          <option value="ref">除權息參考價</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>除權息參考價</h2>
+    <div class="big accent" id="refPrice">—</div>
+    <div style="margin-top:12px">
+      <div class="row"><span class="k">計算式</span><span class="v" id="formula" style="font-weight:400;font-size:13px">—</span></div>
+      <div class="row"><span class="k">配股率</span><span class="v" id="ratio">—</span></div>
+      <div class="row"><span class="k">參考價較收盤價</span><span class="v" id="drop">—</span></div>
+      <div class="row"><span class="k">完全填權息所需漲幅</span><span class="v" id="fillPct">—</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>你的持股試算</h2>
+    <div>
+      <div class="row"><span class="k">可配得股數（無條件捨去）</span><span class="v" id="gotShares">—</span></div>
+      <div class="row"><span class="k">不足 1 股的畸零部分</span><span class="v" id="fracShares">—</span></div>
+      <div class="row"><span class="k">畸零股折現金額</span><span class="v" id="cashOut">—</span></div>
+      <div class="row"><span class="k">該畸零股若按參考價的市值</span><span class="v" id="fracValue">—</span></div>
+      <div class="row"><span class="k">折現造成的價值損失</span><span class="v warn" id="loss">—</span></div>
+      <div class="row"><span class="k">可領現金股利</span><span class="v" id="cashDiv">—</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>免畸零股的最小買進倍數</h2>
+    <div class="big good" id="minLot">—</div>
+    <div class="note" id="minLotNote"></div>
+    <div class="tw">
+      <table id="ladder">
+        <thead><tr><th>倍數</th><th>股數</th><th>張數</th><th>配得股數</th><th>約需資金（元）</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="note" id="gapNote"></div>
+  </div>
+
+  <div class="card">
+    <h2>壓到可忽視：最省股數</h2>
+    <div class="note" style="margin-top:0">
+      買不到最小倍數時的次佳解。下表每一列都是「在這個股數以內，殘餘最小」的紀錄點——
+      往下一列殘餘更小，但要多花錢。找到你覺得夠小的那一列即可。
+    </div>
+    <div class="tw">
+      <table id="pareto">
+        <thead><tr><th>股數</th><th>張數</th><th>配得股數</th><th>殘餘（股）</th><th>折現損失（元）</th><th>約需資金（元）</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="note" id="tuneNote"></div>
+  </div>
+
+  <div class="card">
+    <h2>說明</h2>
+    <div class="note">
+      · 參考價公式：<code>(收盤價 − 現金股利) ÷ (1 + 股票股利 ÷ 10)</code>。股票股利以面額 10 元計價，配 2 元即每股配 0.2 股。<br>
+      · 配股數無條件捨去取整，不足 1 股者由公司折發現金。多數公司公告以<strong>面額 10 元</strong>計價，因此高價股的畸零股折現幾乎等同放棄該部分價值——這就是湊倍數的意義。實際基準仍以個股股利分派公告為準。<br>
+      · 最小倍數的算法：把配股率化為最簡分數 <code>p/q</code>，持股數必須是 <code>q</code> 的倍數，配股才會剛好整數。例如配 2 元 → 0.2 = 1/5 → 5 股的倍數；配 19.842 元 → 1.9842 = 9921/5000 → 需 5000 股。<br>
+      · 未計入股利所得稅、二代健保補充保費、手續費與證交稅。
+    </div>
+  </div>
+
+  <footer>
+    純前端計算，資料不離開你的瀏覽器。本工具僅供試算參考，不構成投資建議；<br>
+    實際配股、折現方式與金額以公司股利分派公告及券商交割結果為準。<br>
+    <a href="https://github.com/JuiTse1108/ex-dividend-calculator" target="_blank" rel="noopener">原始碼 on GitHub</a>
+  </footer>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const inputs = ['close','cash','stock','shares','basis'];
+
+function gcd(a, b){ while(b){ [a, b] = [b, a % b]; } return a; }
+const fmt = (n, d=2) => Number.isFinite(n)
+  ? n.toLocaleString('zh-TW', {minimumFractionDigits:d, maximumFractionDigits:d})
+  : '—';
+const int = n => Number.isFinite(n) ? Math.round(n).toLocaleString('zh-TW') : '—';
+
+function calc(){
+  const close  = parseFloat($('close').value)  || 0;
+  const cash   = parseFloat($('cash').value)   || 0;
+  const stock  = parseFloat($('stock').value)  || 0;
+  const shares = Math.max(0, Math.floor(parseFloat($('shares').value) || 0));
+  const basis  = $('basis').value;
+
+  // 股利小數三位 -> 整數運算，避免浮點誤差影響最簡分數
+  const milli = Math.round(stock * 1000);        // 股票股利 × 1000
+  const den   = 10000;                           // 配股率 = milli / 10000
+  const g     = milli === 0 ? 1 : gcd(milli, den);
+  const p     = milli / g, q = den / g;          // 最簡分數 p/q
+  const ratio = milli / den;                     // 每股配發股數
+
+  // 參考價
+  const ref = (close - cash) / (1 + ratio);
+  $('refPrice').textContent = milli === 0 && cash === 0 ? '—' : fmt(ref) + ' 元';
+  $('formula').textContent  = `(${fmt(close)} − ${fmt(cash,3)}) ÷ (1 + ${fmt(stock,3)} ÷ 10)`;
+  $('ratio').textContent    = milli === 0
+    ? '無配股' : `${fmt(ratio,4)} 股／股（最簡分數 ${p}/${q}）`;
+  $('drop').textContent     = fmt(ref - close) + ' 元';
+  $('fillPct').textContent  = ref > 0 ? '+' + fmt((close / ref - 1) * 100) + ' %' : '—';
+
+  // 持股試算
+  const totalMilli = shares * milli;             // 股數 × 股票股利 × 1000
+  const got   = Math.floor(totalMilli / den);    // 整股配股數
+  const frac  = totalMilli / den - got;          // 畸零股（<1 股）
+  const unit  = basis === 'par' ? 10 : ref;
+  const out   = frac * unit;
+  const val   = frac * ref;
+
+  $('gotShares').textContent  = milli === 0 ? '無配股' : int(got) + ' 股';
+  $('fracShares').textContent = milli === 0 ? '—' : fmt(frac, 4) + ' 股';
+  $('cashOut').textContent    = milli === 0 ? '—' : fmt(out) + ' 元';
+  $('fracValue').textContent  = milli === 0 ? '—' : fmt(val) + ' 元';
+  $('loss').textContent       = milli === 0 ? '—' : (val > out ? '−' + fmt(val - out) : fmt(0)) + ' 元';
+  $('cashDiv').textContent    = fmt(shares * cash) + ' 元';
+
+  const tbody = $('ladder').querySelector('tbody');
+  const pbody = $('pareto').querySelector('tbody');
+  tbody.innerHTML = ''; pbody.innerHTML = '';
+  if(milli === 0){
+    $('minLot').textContent     = '不受限';
+    $('minLotNote').textContent = '本次僅除息、無配股，任何股數都不會產生畸零股。';
+    $('gapNote').textContent    = '';
+    $('tuneNote').textContent   = '';
+    return;
+  }
+
+  // 最小倍數
+  $('minLot').textContent = int(q) + ' 股' + (q % 1000 === 0 ? `（${q/1000} 張）` : '');
+  $('minLotNote').textContent =
+    `持股數必須是 ${q} 股的倍數，配股才會剛好整數、完全不被折現。`;
+
+  for(let k = 1; k <= 5; k++){
+    const n  = q * k;
+    const tr = document.createElement('tr');
+    if(shares > 0 && shares === n) tr.className = 'hit';
+    tr.innerHTML =
+      `<td>${k}×</td><td>${int(n)}</td><td>${fmt(n/1000, 3)}</td>` +
+      `<td>${int(n * milli / den)}</td><td>${int(n * close)}</td>`;
+    tbody.appendChild(tr);
+  }
+
+  if(shares > 0){
+    const rem = shares % q;
+    $('gapNote').textContent = rem === 0
+      ? `目前 ${int(shares)} 股已是 ${q} 的倍數，不會有畸零股。`
+      : `目前 ${int(shares)} 股，再買 ${int(q - rem)} 股（約 ${int((q - rem) * close)} 元）即可補到 ${int(shares + q - rem)} 股，免除畸零股折現。`;
+  }else{
+    $('gapNote').textContent = '';
+  }
+
+  // 帕累托前緣：掃到 q 為止，每次殘餘創新低就記一筆
+  const front = [];
+  let bestRem = den;
+  for(let n = 1; n <= q; n++){
+    const r = (n * milli) % den;
+    if(r < bestRem){ bestRem = r; front.push({n, r}); if(r === 0) break; }
+  }
+  front.slice(-10).forEach(({n, r}) => {
+    const f  = r / den;
+    const tr = document.createElement('tr');
+    if(r === 0) tr.className = 'hit';
+    tr.innerHTML =
+      `<td>${int(n)}</td><td>${fmt(n/1000,3)}</td><td>${int(n*milli/den - f)}</td>` +
+      `<td>${f === 0 ? '0' : f.toFixed(4)}</td>` +
+      `<td>${fmt(Math.max(0, f*ref - f*unit))}</td><td>${int(n*close)}</td>`;
+    pbody.appendChild(tr);
+  });
+
+  // 以目前股數為中心，小幅範圍內找殘餘最小的可下單股數
+  if(shares > 0){
+    const span = Math.min(q, Math.max(50, Math.round(shares * 0.1)));
+    let bn = shares, br = (shares * milli) % den;
+    for(let n = Math.max(1, shares - span); n <= shares + span; n++){
+      const r = (n * milli) % den;
+      if(r < br || (r === br && Math.abs(n - shares) < Math.abs(bn - shares))){ br = r; bn = n; }
+    }
+    const curF = ((shares * milli) % den) / den;
+    $('tuneNote').textContent = bn === shares
+      ? `目前 ${int(shares)} 股在 ±${int(span)} 股範圍內已是殘餘最小的選擇（殘餘 ${curF.toFixed(4)} 股）。`
+      : `微調建議：把 ${int(shares)} 股（殘餘 ${curF.toFixed(4)} 股）改成 ${int(bn)} 股`
+        + `（${bn > shares ? '多買' : '少買'} ${int(Math.abs(bn - shares))} 股，`
+        + `資金${bn > shares ? '增加' : '減少'}約 ${int(Math.abs(bn - shares) * close)} 元），`
+        + `殘餘降到 ${(br/den).toFixed(4)} 股。`;
+  }else{
+    $('tuneNote').textContent = '';
+  }
+}
+
+inputs.forEach(id => $(id).addEventListener('input', calc));
+calc();
+</script>
+</body>
+</html>
